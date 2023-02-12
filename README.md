@@ -7,5 +7,5 @@ address changes.
 
 ## TODO:
  - [ ] Make a blog post of all the pain that went into the Namecheap version
- - [ ] Make a `docker-compose` file for running it on a server
- - [ ] Make a `Makefile` with github actions to auto-deploy to dockerhub
+ - [ ] Move to systemd unit file or find a way to make the cron respect env
+     vars.

@@ -1,4 +1,4 @@
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-* * * * * CONFIG_FILEPATH=/app/config/config.ini python3 /app/dns_record_updater.py > /proc/1/fd/1 2>/proc/1/fd/2
+*/5 * * * * CONFIG_FILEPATH=/app/config/config.ini python3 /app/dns_record_updater.py > /proc/1/fd/1 2>/proc/1/fd/2

@@ -1,0 +1,20 @@
+version: '3.3'
+
+services:
+  diyndns:
+    container_name: "diyndns"
+    image: conorjf/diyndns:latest
+    restart: unless-stopped
+
+    volumes:
+      - ./config/config.ini:/app/config/config.ini
+
+  diyndns-watchtower:
+    container_name: "diyndns-watchtower"
+    image: containrrr/watchtower
+    restart: unless-stopped
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    command: diyndns --interval 300
