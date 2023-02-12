@@ -17,7 +17,7 @@ domain_name = config.get("DOMAIN_NAME", None)
 log_filename = config.get("LOG_FILENAME", "/var/log/dns_record_updater.log")
 
 logfile_handler = logging.FileHandler(filename=log_filename)
-stdout_handler = logging.Streamhandler(stream=sys.stdout)
+stdout_handler = logging.StreamHandler(stream=sys.stdout)
 handlers = [logfile_handler, stdout_handler]
 
 logging.basicConfig(
