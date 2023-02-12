@@ -1,0 +1,5 @@
+[DEFAULT]
+cloudflare_token = API_TOKEN
+cloudflare_zone_id = ZONE_TOKEN
+domain_name = DOMAIN_NAME
+
