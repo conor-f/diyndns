@@ -15,7 +15,19 @@ cloudflare_token = config.get("CLOUDFLARE_TOKEN", None)
 cloudflare_zone_id = config.get("CLOUDFLARE_ZONE_ID", None)
 domain_name = config.get("DOMAIN_NAME", None)
 log_filename = config.get("LOG_FILENAME", "/var/log/dns_record_updater.log")
-logging.basicConfig(filename=log_filename, level=logging.INFO)
+
+logfile_handler = logging.FileHandler(filename=log_filename)
+stdout_handler = logging.Streamhandler(stream=sys.stdout)
+handlers = [logfile_handler, stdout_handler]
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+    handlers=handlers
+)
+
+logger = logging.getLogger()
+
 
 shelf_name = "public_ip_shelf"
 
@@ -73,22 +85,22 @@ def update_records(ip):
     write_new_ip_address(ip)
 
 def main():
-    logging.info("Running dns_record_updater...")
+    logger.info("Running dns_record_updater...")
 
     current_ip = get_public_ip_address()
 
     if should_update_records(current_ip):
-        logging.info(
+        logger.info(
             f"Trying to update from {read_stored_ip_address()} to {current_ip}..."
         )
         try:
             update_records(current_ip)
-            logging.info("Update Successful.")
+            logger.info("Update Successful.")
         except Exception as e:
-            logging.error("Updating Failed.")
-            logging.exception(e)
+            logger.error("Updating Failed.")
+            logger.exception(e)
     else:
-        logging.info("Not updates needed.")
+        logger.info("Not updates needed.")
 
 
 if __name__ == "__main__":
