@@ -5,16 +5,16 @@ import requests
 import shelve
 import sys
 
-import CloudFlare
+import cloudflare
 
 
 config = configparser.ConfigParser()
 config.read(os.environ.get("CONFIG_FILEPATH", "config.ini"))
 config = config["DEFAULT"]
 
-cloudflare_token = config.get("CLOUDFLARE_TOKEN", None)
-cloudflare_zone_id = config.get("CLOUDFLARE_ZONE_ID", None)
-domain_name = config.get("DOMAIN_NAME", None)
+cloudflare_api_email = config.get("CLOUDFLARE_API_EMAIL", None)
+cloudflare_api_key = config.get("CLOUDFLARE_API_KEY", None)
+domain_names = config.get("DOMAIN_NAMES", None).split(",")
 log_filename = config.get("LOG_FILENAME", "/var/log/dns_record_updater.log")
 
 logfile_handler = logging.FileHandler(filename=log_filename)
@@ -68,24 +68,31 @@ def update_records(ip):
     Given a new IP address, update the basic DNS A records for that IP on
     Cloudflare. Raise on any issue.
     """
-    cf = CloudFlare.CloudFlare(token=cloudflare_token)
-    records = cf.zones.dns_records.get(cloudflare_zone_id)
+    cf = cloudflare.Cloudflare(
+        api_email=cloudflare_api_email,
+        api_key=cloudflare_api_key,
+    )
+    zone_ids = [zone.id for zone in cf.zones.list() if zone.name in domain_names]
 
-    records_to_update = [
-        r
-        for r in records
-        if (r["name"] == f"*.{domain_name}" or r["name"] == domain_name)
-        and r["type"] == "A"
-    ]
+    for zone_id in zone_ids:
+        records = cf.dns.records.list(zone_id=zone_id)
 
-    for r in records_to_update:
-        new_record = {
-            "type": "A",
-            "name": r["name"],
-            "content": ip,
-        }
+        for domain_name in domain_names:
+            records_to_update = [
+                r
+                for r in records
+                if (r.name == f"*.{domain_name}" or r.name == domain_name)
+                and r.type == "A"
+            ]
 
-        cf.zones.dns_records.put(cloudflare_zone_id, r["id"], data=new_record)
+            for r in records_to_update:
+                cf.dns.records.edit(
+                    zone_id=zone_id,
+                    type="A",
+                    dns_record_id=r.id,
+                    name=r.name,
+                    content=ip,
+                )
 
     write_new_ip_address(ip)
 

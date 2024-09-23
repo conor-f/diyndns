@@ -1,4 +1,5 @@
 [DEFAULT]
-cloudflare_token = API_TOKEN
-cloudflare_zone_id = ZONE_TOKEN
-domain_name = DOMAIN_NAME
+cloudflare_api_email = API_EMAIL
+cloudflare_api_key = API_KEY
+domain_names = DOMAIN_NAME1,DOMAIN_NAME2,...
+log_filename = LOG_FILEPATH
