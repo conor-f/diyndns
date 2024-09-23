@@ -1,4 +1,4 @@
-FROM python:3.10-slim-buster
+FROM python:3.12-slim-buster
 
 RUN apt-get update && apt-get -y install cron vim
 
