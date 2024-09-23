@@ -23,8 +23,8 @@ handlers = [logfile_handler, stdout_handler]
 
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
-    handlers=handlers
+    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+    handlers=handlers,
 )
 
 logger = logging.getLogger()
@@ -36,13 +36,16 @@ shelf_name = "public_ip_shelf"
 def get_public_ip_address():
     return str(requests.get("https://ipinfo.io/json").json()["ip"])
 
+
 def read_stored_ip_address():
     with shelve.open(shelf_name) as shelf:
         return shelf.get("public_ip", None)
 
+
 def write_new_ip_address(ip):
     with shelve.open(shelf_name) as shelf:
         shelf["public_ip"] = ip
+
 
 def is_new_ip(ip):
     """
@@ -51,12 +54,14 @@ def is_new_ip(ip):
     """
     return ip != read_stored_ip_address()
 
+
 def should_update_records(ip):
     """
     Return True if we should try update DNS records to this IP address, False
     otherwise.
     """
     return read_stored_ip_address() == None or is_new_ip(ip)
+
 
 def update_records(ip):
     """
@@ -67,11 +72,10 @@ def update_records(ip):
     records = cf.zones.dns_records.get(cloudflare_zone_id)
 
     records_to_update = [
-        r for r in records
-        if (
-            r["name"] == f"*.{domain_name}" or
-            r["name"] == domain_name
-        ) and r["type"] == "A"
+        r
+        for r in records
+        if (r["name"] == f"*.{domain_name}" or r["name"] == domain_name)
+        and r["type"] == "A"
     ]
 
     for r in records_to_update:
@@ -84,6 +88,7 @@ def update_records(ip):
         cf.zones.dns_records.put(cloudflare_zone_id, r["id"], data=new_record)
 
     write_new_ip_address(ip)
+
 
 def main():
     logger.info("Running dns_record_updater...")
@@ -101,7 +106,7 @@ def main():
             logger.error("Updating Failed.")
             logger.exception(e)
     else:
-        logger.info("Not updates needed.")
+        logger.info("No updates needed.")
 
 
 if __name__ == "__main__":
