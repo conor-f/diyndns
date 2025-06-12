@@ -1,36 +1,102 @@
 import configparser
 import logging
 import os
+from typing import List
 import requests
 import shelve
 import sys
 
 import cloudflare
 
-
-config = configparser.ConfigParser()
-config.read(os.environ.get("CONFIG_FILEPATH", "config.ini"))
-config = config["DEFAULT"]
-
-cloudflare_api_email = config.get("CLOUDFLARE_API_EMAIL", None)
-cloudflare_api_key = config.get("CLOUDFLARE_API_KEY", None)
-domain_names = config.get("DOMAIN_NAMES", None).split(",")
-log_filename = config.get("LOG_FILENAME", "/var/log/dns_record_updater.log")
-
-logfile_handler = logging.FileHandler(filename=log_filename)
-stdout_handler = logging.StreamHandler(stream=sys.stdout)
-handlers = [logfile_handler, stdout_handler]
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-    handlers=handlers,
-)
-
-logger = logging.getLogger()
+SHELF_NAME = "public_ip_shelf"
 
 
-shelf_name = "public_ip_shelf"
+class Provider:
+    def update_records(self, ip: str) -> None:
+        raise NotImplementedError
+
+
+class CloudflareProvider(Provider):
+    def __init__(self, email_address, api_key, domains):
+        self.email_address = email_address
+        self.api_key = api_key
+        self.domains = domains
+
+    def __str__(self):
+        return f"CloudflareProvider<{self.email_address}>"
+
+    def update_records(self, ip: str):
+        """
+        Given a new IP address, update the basic DNS A records for that IP on
+        Cloudflare. Raise on any issue.
+        """
+        cf = cloudflare.Cloudflare(
+            api_email=self.email_address,
+            api_key=self.api_key,
+        )
+        zone_ids = [zone.id for zone in cf.zones.list() if zone.name in self.domains]
+
+        for zone_id in zone_ids:
+            records = cf.dns.records.list(zone_id=zone_id)
+
+            for domain_name in self.domains:
+                records_to_update = [
+                    r
+                    for r in records
+                    if (r.name == f"*.{domain_name}" or r.name == domain_name)
+                    and r.type == "A"
+                ]
+
+                for r in records_to_update:
+                    cf.dns.records.edit(
+                        zone_id=zone_id,
+                        type="A",
+                        dns_record_id=r.id,
+                        name=r.name,
+                        content=ip,
+                    )
+
+
+class PorkbunProvider(Provider):
+    pass
+
+
+def get_providers_from_config(config: configparser.ConfigParser) -> List[Provider]:
+    providers = []
+
+    for key in config:
+        if key == "CLOUDFLARE":
+            cloudflare_config = config["CLOUDFLARE"]
+
+            email_address = cloudflare_config.get("API_EMAIL", None)
+            api_key = cloudflare_config.get("API_KEY", None)
+            domains = cloudflare_config.get("DOMAINS", "").split(",")
+
+            providers.append(CloudflareProvider(email_address, api_key, domains))
+        elif key == "PORKBUN":
+            print("TODO: Implement Porkbun provider!")
+        else:
+            print(f"Unknown provider: {key}")
+
+    return providers
+
+
+def init_logger(config: configparser.ConfigParser) -> logging.Logger:
+    log_filename = config["DEFAULT"].get(
+        "LOG_FILENAME", "/var/log/dns_record_updater.log"
+    )
+
+    logfile_handler = logging.FileHandler(filename=log_filename)
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    handlers = [logfile_handler, stdout_handler]
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+
+    return logging.getLogger()
 
 
 def get_public_ip_address():
@@ -38,12 +104,12 @@ def get_public_ip_address():
 
 
 def read_stored_ip_address():
-    with shelve.open(shelf_name) as shelf:
+    with shelve.open(SHELF_NAME) as shelf:
         return shelf.get("public_ip", None)
 
 
 def write_new_ip_address(ip):
-    with shelve.open(shelf_name) as shelf:
+    with shelve.open(SHELF_NAME) as shelf:
         shelf["public_ip"] = ip
 
 
@@ -63,41 +129,13 @@ def should_update_records(ip):
     return read_stored_ip_address() == None or is_new_ip(ip)
 
 
-def update_records(ip):
-    """
-    Given a new IP address, update the basic DNS A records for that IP on
-    Cloudflare. Raise on any issue.
-    """
-    cf = cloudflare.Cloudflare(
-        api_email=cloudflare_api_email,
-        api_key=cloudflare_api_key,
-    )
-    zone_ids = [zone.id for zone in cf.zones.list() if zone.name in domain_names]
-
-    for zone_id in zone_ids:
-        records = cf.dns.records.list(zone_id=zone_id)
-
-        for domain_name in domain_names:
-            records_to_update = [
-                r
-                for r in records
-                if (r.name == f"*.{domain_name}" or r.name == domain_name)
-                and r.type == "A"
-            ]
-
-            for r in records_to_update:
-                cf.dns.records.edit(
-                    zone_id=zone_id,
-                    type="A",
-                    dns_record_id=r.id,
-                    name=r.name,
-                    content=ip,
-                )
-
-    write_new_ip_address(ip)
-
-
 def main():
+    config = configparser.ConfigParser()
+    config.read(os.environ.get("CONFIG_FILEPATH", "config.ini"))
+
+    providers = get_providers_from_config(config)
+    logger = init_logger(config)
+
     logger.info("Running dns_record_updater...")
 
     current_ip = get_public_ip_address()
@@ -106,12 +144,16 @@ def main():
         logger.info(
             f"Trying to update from {read_stored_ip_address()} to {current_ip}..."
         )
-        try:
-            update_records(current_ip)
-            logger.info("Update Successful.")
-        except Exception as e:
-            logger.error("Updating Failed.")
-            logger.exception(e)
+
+        for provider in providers:
+            try:
+                provider.update_records(current_ip)
+                logger.info(f"Update Successful for {provider}.")
+            except Exception as e:
+                logger.error(f"Updating Failed for {provider}.")
+                logger.exception(e)
+
+        write_new_ip_address(current_ip)
     else:
         logger.info("No updates needed.")
 
