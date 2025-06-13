@@ -142,6 +142,8 @@ def get_providers_from_config(config: configparser.ConfigParser) -> List[Provide
     providers = []
 
     for key in config:
+        if key == "DEFAULT":
+            continue
         if key == "CLOUDFLARE":
             cloudflare_config = config["CLOUDFLARE"]
 
