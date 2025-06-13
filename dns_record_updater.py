@@ -58,7 +58,84 @@ class CloudflareProvider(Provider):
 
 
 class PorkbunProvider(Provider):
-    pass
+    def __init__(self, api_key, secret_key, domains):
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.domains = domains
+        self.base_url = "https://api.porkbun.com/api/json/v3/dns"
+
+    def __str__(self):
+        return f"PorkbunProvider<{self.api_key}>"
+
+    def update_records(self, ip: str):
+        headers = {"Content-Type": "application/json"}
+        payload = {"apikey": self.api_key, "secretapikey": self.secret_key}
+
+        for domain_name in self.domains:
+            # Retrieve current DNS records
+            retrieve_url = f"{self.base_url}/retrieve/{domain_name}"
+            response = requests.post(retrieve_url, json=payload, headers=headers)
+            response_data = response.json()
+
+            if response_data["status"] != "SUCCESS":
+                raise Exception(f"Failed to retrieve records for {domain_name}")
+
+            # Filter for A records
+            a_records = [r for r in response_data["records"] if r["type"] == "A"]
+
+            if not a_records:
+                # Create new A records if none exist
+                create_url = f"{self.base_url}/create/{domain_name}"
+
+                # Create root domain record
+                root_payload = {
+                    **payload,
+                    "name": "",  # root domain
+                    "type": "A",
+                    "content": ip,
+                    "ttl": "600",
+                }
+                root_response = requests.post(
+                    create_url, json=root_payload, headers=headers
+                )
+                if root_response.json()["status"] != "SUCCESS":
+                    raise Exception(f"Failed to create root record for {domain_name}")
+
+                # Create wildcard record
+                wildcard_payload = {
+                    **payload,
+                    "name": "*",  # wildcard subdomain
+                    "type": "A",
+                    "content": ip,
+                    "ttl": "600",
+                }
+                wild_response = requests.post(
+                    create_url, json=wildcard_payload, headers=headers
+                )
+                if wild_response.json()["status"] != "SUCCESS":
+                    raise Exception(
+                        f"Failed to create wildcard record for {domain_name}"
+                    )
+            else:
+                # Update existing records
+                for record in a_records:
+                    update_url = f"{self.base_url}/edit/{domain_name}/{record['id']}"
+                    update_payload = {
+                        **payload,
+                        "name": record["name"],
+                        "type": "A",
+                        "content": ip,
+                        "ttl": record.get("ttl", 600),
+                    }
+                    update_response = requests.post(
+                        update_url, json=update_payload, headers=headers
+                    )
+                    update_response_data = update_response.json()
+
+                    if update_response_data["status"] != "SUCCESS":
+                        raise Exception(
+                            f"Failed to update record {record['id']} for {domain_name}"
+                        )
 
 
 def get_providers_from_config(config: configparser.ConfigParser) -> List[Provider]:
@@ -74,7 +151,13 @@ def get_providers_from_config(config: configparser.ConfigParser) -> List[Provide
 
             providers.append(CloudflareProvider(email_address, api_key, domains))
         elif key == "PORKBUN":
-            print("TODO: Implement Porkbun provider!")
+            porkbun_config = config["PORKBUN"]
+
+            api_key = porkbun_config.get("API_KEY", None)
+            secret_key = porkbun_config.get("SECRET_KEY", None)
+            domains = porkbun_config.get("DOMAINS", "").split(",")
+
+            providers.append(PorkbunProvider(api_key, secret_key, domains))
         else:
             print(f"Unknown provider: {key}")
 
