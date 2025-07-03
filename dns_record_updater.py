@@ -63,18 +63,46 @@ class PorkbunProvider(Provider):
         self.secret_key = secret_key
         self.domains = domains
         self.base_url = "https://api.porkbun.com/api/json/v3/dns"
+        self.payload = {"apikey": self.api_key, "secretapikey": self.secret_key}
+        self.headers = {"Content-Type": "application/json"}
 
     def __str__(self):
         return f"PorkbunProvider<{self.api_key}>"
 
-    def update_records(self, ip: str):
-        headers = {"Content-Type": "application/json"}
-        payload = {"apikey": self.api_key, "secretapikey": self.secret_key}
+    def _create_new_record(self, domain_name: str, name: str, ip: str):
+        create_url = f"{self.base_url}/create/{domain_name}"
 
+        # Create root domain record
+        root_payload = {
+            **self.payload,
+            "name": name,
+            "type": "A",
+            "content": ip,
+            "ttl": "600",
+        }
+
+        root_response = requests.post(
+            create_url, json=root_payload, headers=self.headers
+        )
+
+        if root_response.json()["status"] != "SUCCESS":
+            raise Exception(f"Failed to create record for '{domain_name}'")
+
+    def _create_new_records(self, domain_name: str, ip: str):
+        """
+        Create new records for the given domain and IP.
+        """
+        # Root record is an empty string.
+        self._create_new_record(domain_name, "", ip)
+        self._create_new_record(domain_name, "*", ip)
+
+    def update_records(self, ip: str):
         for domain_name in self.domains:
             # Retrieve current DNS records
             retrieve_url = f"{self.base_url}/retrieve/{domain_name}"
-            response = requests.post(retrieve_url, json=payload, headers=headers)
+            response = requests.post(
+                retrieve_url, json=self.payload, headers=self.headers
+            )
             response_data = response.json()
 
             if response_data["status"] != "SUCCESS":
@@ -83,59 +111,23 @@ class PorkbunProvider(Provider):
             # Filter for A records
             a_records = [r for r in response_data["records"] if r["type"] == "A"]
 
-            if not a_records:
-                # Create new A records if none exist
-                create_url = f"{self.base_url}/create/{domain_name}"
-
-                # Create root domain record
-                root_payload = {
-                    **payload,
-                    "name": "",  # root domain
-                    "type": "A",
-                    "content": ip,
-                    "ttl": "600",
-                }
-                root_response = requests.post(
-                    create_url, json=root_payload, headers=headers
-                )
-                if root_response.json()["status"] != "SUCCESS":
-                    raise Exception(f"Failed to create root record for {domain_name}")
-
-                # Create wildcard record
-                wildcard_payload = {
-                    **payload,
-                    "name": "*",  # wildcard subdomain
-                    "type": "A",
-                    "content": ip,
-                    "ttl": "600",
-                }
-                wild_response = requests.post(
-                    create_url, json=wildcard_payload, headers=headers
-                )
-                if wild_response.json()["status"] != "SUCCESS":
-                    raise Exception(
-                        f"Failed to create wildcard record for {domain_name}"
-                    )
-            else:
-                # Update existing records
+            if a_records:
+                # Delete existing records, then create them afresh, as Porkbun
+                # doesn't co-operate well with editing a root record through
+                # the API -_-
                 for record in a_records:
-                    update_url = f"{self.base_url}/edit/{domain_name}/{record['id']}"
-                    update_payload = {
-                        **payload,
-                        "name": record["name"],
-                        "type": "A",
-                        "content": ip,
-                        "ttl": record.get("ttl", 600),
-                    }
-                    update_response = requests.post(
-                        update_url, json=update_payload, headers=headers
+                    delete_url = f"{self.base_url}/delete/{domain_name}/{record['id']}"
+                    delete_response = requests.post(
+                        delete_url, json=self.payload, headers=self.headers
                     )
-                    update_response_data = update_response.json()
+                    delete_response_data = delete_response.json()
 
-                    if update_response_data["status"] != "SUCCESS":
+                    if delete_response_data["status"] != "SUCCESS":
                         raise Exception(
-                            f"Failed to update record {record['id']} for {domain_name}"
+                            f"Failed to delete record {record['id']} for {domain_name}"
                         )
+
+            self._create_new_records(domain_name, ip)
 
 
 def get_providers_from_config(config: configparser.ConfigParser) -> List[Provider]:
